@@ -176,9 +176,9 @@ btn('#bLbl', () => { showLabels = !showLabels; $('#bLbl').classList.toggle('on',
 (async () => {
   try {
     setLoad(.02, '讀取地標與日誌…');
-    const [places, log] = await Promise.all([fetch('./places.json').then(r => r.json()), fetch('./changelog.json').then(r => r.json())]);
+    const [places, log] = await Promise.all([fetch('./places.json', { cache: 'no-cache' }).then(r => r.json()), fetch('./changelog.json', { cache: 'no-cache' }).then(r => r.json())]);
     renderLog(log.entries || []); $('#ver').textContent = log.version ? '資料版本：' + log.version : '';
-    const data = parse(await fetchBin('./data/citymap.bin.gz'));
+    const data = parse(await fetchBin('./' + (log.data || 'data/citymap.bin.gz')));   /* file name carries a content hash, so a new export is never served from an old cache */
     setLoad(.75, '建立城市模型…'); await new Promise(r => setTimeout(r, 30));
     build(data); applySky();
     DISTRICTS = data.H.districts || [];

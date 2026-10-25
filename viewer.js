@@ -8,15 +8,15 @@ const canvas = $('#c'), labelsEl = $('#labels');
 const setLoad = (p, msg) => { $('#lbar').style.width = Math.round(p * 100) + '%'; if (msg) $('#lmsg').textContent = msg; };
 
 /* ---------- renderer / scene ---------- */
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', logarithmicDepthBuffer: true });   /* the city has coplanar layers (ground, road, markings) seen from 4 km: log depth stops them fighting */
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(45, 1, 1, 9000);
+const camera = new THREE.PerspectiveCamera(45, 1, 2, 12000);
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true; controls.dampingFactor = .08; controls.screenSpacePanning = false;
-controls.maxPolarAngle = Math.PI * .47; controls.minDistance = 25; controls.maxDistance = 2600;
+controls.maxPolarAngle = Math.PI * .47; controls.minDistance = 25; controls.maxDistance = 5200;
 const hemi = new THREE.HemisphereLight(0xdfe9f5, 0x4a4036, 1.1); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfff1dc, 2.2); sun.position.set(-600, 900, 400); scene.add(sun);
 const SKY = { day: [0x9cc4e4, 0xdfe8ef], night: [0x0b1020, 0x1a2236] };
@@ -26,7 +26,7 @@ function applySky() {
   const c = document.createElement('canvas'); c.width = 2; c.height = 256; const g = c.getContext('2d');
   const gr = g.createLinearGradient(0, 0, 0, 256); gr.addColorStop(0, '#' + a.toString(16).padStart(6, '0')); gr.addColorStop(1, '#' + b.toString(16).padStart(6, '0'));
   g.fillStyle = gr; g.fillRect(0, 0, 2, 256); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; scene.background = t;
-  scene.fog = new THREE.Fog(b, 1400, 5200);
+  scene.fog = new THREE.Fog(b, 2600, 9000);
   hemi.intensity = night ? .28 : 1.1; sun.intensity = night ? .12 : 2.2; sun.color.set(night ? 0x8fa6d6 : 0xfff1dc);
   for (const m of EMIT) m.emissiveIntensity = night ? m.userData.ei * 2.4 + .6 : m.userData.ei;
   renderer.toneMappingExposure = night ? 1.25 : 1.0;
@@ -101,7 +101,7 @@ function build({ H, view }) {
 const LBL = [];
 function addLabel(text, pos, cls, info) {
   const el = document.createElement('div'); el.className = 'lbl ' + (cls || ''); el.textContent = text; labelsEl.appendChild(el);
-  const L = { el, pos, cls, info }; if (info) el.addEventListener('click', e => { e.stopPropagation(); showCard(info); flyTo(pos); }); LBL.push(L); return L;
+  const L = { el, pos, cls, info, w: 0 }; if (info) el.addEventListener('click', e => { e.stopPropagation(); showCard(info); flyTo(pos, info.dist || 180); }); LBL.push(L); return L;
 }
 let showLabels = true;
 const _v = new THREE.Vector3();
@@ -113,11 +113,11 @@ function updateLabels() {
   for (const L of LBL) if (L.cls === 'dist') place(L);
   function place(L) {
     _v.copy(L.pos); const d = camera.position.distanceTo(L.pos); _v.project(camera);
-    let vis = showLabels && _v.z < 1 && Math.abs(_v.x) < 1.1 && Math.abs(_v.y) < 1.1 && (L.cls === 'dist' ? dist > 500 : d < (L.info && L.info.big ? 3200 : 1500));
+    let vis = showLabels && _v.z < 1 && Math.abs(_v.x) < 1.1 && Math.abs(_v.y) < 1.1 && (L.cls === 'dist' ? dist > 500 : d < (L.info && L.info.big ? 5000 : 1500));
     const x = (_v.x + 1) / 2 * w, y = (1 - _v.y) / 2 * h;
-    if (vis) for (const [sx, sy, sw] of shown) if (Math.abs(sx - x) < (sw + (L.el.offsetWidth || L.el.textContent.length * 13 + 16)) / 2 + 6 && Math.abs(sy - y) < 22) { vis = false; break; }
+    if (vis) for (const [sx, sy, sw] of shown) if (Math.abs(sx - x) < (sw + L.w) / 2 + 6 && Math.abs(sy - y) < 22) { vis = false; break; }
     L.el.style.display = vis ? '' : 'none';
-    if (vis) { L.el.style.left = x + 'px'; L.el.style.top = y + 'px'; L.el.style.opacity = L.cls === 'dist' ? Math.min(1, (dist - 500) / 300) : 1; shown.push([x, y, L.el.offsetWidth || 80]); }
+    if (vis) { L.el.style.left = x + 'px'; L.el.style.top = y + 'px'; L.el.style.opacity = L.cls === 'dist' ? Math.min(1, (dist - 500) / 300) : 1; shown.push([x, y, L.w]); }
   }
 }
 function showCard(info) {
@@ -187,11 +187,12 @@ btn('#bLbl', () => { showLabels = !showLabels; $('#bLbl').classList.toggle('on',
     const plist = $('#places');
     for (const P of places.places) {
       const at = P.at || (byId[P.id] && [byId[P.id].x, byId[P.id].z]); if (!at) continue;
-      const pos = new THREE.Vector3(at[0], P.h || 14, at[1]); const info = { name: P.name, tags: P.tags, text: P.text, big: P.big };
+      const pos = new THREE.Vector3(at[0], P.h || 14, at[1]); const info = { name: P.name, tags: P.tags, text: P.text, big: P.big, dist: P.dist };
       addLabel(P.name, pos, '', info);
-      const b = document.createElement('button'); b.className = 'btn'; b.textContent = P.name; b.addEventListener('click', () => { showCard(info); flyTo(pos); }); plist.appendChild(b);
+      const b = document.createElement('button'); b.className = 'btn'; b.textContent = P.name; b.addEventListener('click', () => { showCard(info); flyTo(pos, info.dist || 180); }); plist.appendChild(b);
     }
     setLoad(1, ''); $('#load').style.display = 'none';
+    for (const L of LBL) L.w = L.el.offsetWidth || L.el.textContent.length * 13 + 16;   /* measured once while all are shown: a hidden label measures 0, which made neighbours flip on and off every frame */
     camera.position.set(0, 1750, 750); controls.target.set(0, 0, -60); resize();
     const clock = new THREE.Clock();
     renderer.setAnimationLoop(() => {

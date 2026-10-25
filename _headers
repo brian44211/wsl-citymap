@@ -1,0 +1,4 @@
+/data/*
+  Cache-Control: public, max-age=3600
+/*.json
+  Cache-Control: no-cache
